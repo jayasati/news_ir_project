@@ -175,11 +175,22 @@ appending to reports/viva_notes.md and committing as "Step N: <name>".
 
 ## Step 7: Validation
 
-- **Status:** Not started
-- **Files:**
+- **Status:** Done
+- **Files:** `src/validate.py`; output `reports/validation.md`
 - **Key functions (with signatures):**
+  - `QUERIES`: the 3 demo queries + 7 more (oil prices economy; oscar nominations best actress; film box office; general election labour tory; immigration asylum policy; world cup rugby; broadband internet users), covering all five categories
+  - `okapi_top10(okapi: BM25Okapi, q_terms: list[str]) -> list[int]`: BM25Okapi's top 10 doc_ids (stable sort, ties → lower doc_id)
+  - `bm25_with_okapi_idf(index: InvertedIndex, okapi: BM25Okapi, q_terms: list[str], k1: float = 1.5, b: float = 0.75) -> np.ndarray`: my BM25 formula with Okapi's idf values, for every doc
+  - `validate_bm25(index: InvertedIndex, tokens: dict[int, list[str]]) -> tuple[list[dict], list[dict]]`: overlap@10, top-1 match, max score difference, idf comparison
+  - `validate_nb(articles, tokens: dict[int, list[str]]) -> dict`: my `NaiveBayes` (models/nb.pkl) vs `MultinomialNB(alpha=1.0)` + `CountVectorizer(analyzer=lambda x: x)`
+  - `to_markdown(bm25_rows: list[dict], idf_rows: list[dict], nb: dict) -> str`
 - **Results:**
-- **Notes:**
+  - **BM25: average overlap 9.7 / 10, top result matches on 10 / 10 queries.** Seven queries overlap 10/10; "oil prices economy", "oscar nominations best actress" and "world cup rugby" overlap 9/10 (one document swapped near rank 10).
+  - Re-scoring with Okapi's idf gives a max score difference ≤ 3.6e-15 over all 2,096 docs for every query, so the tf, k1, b and length-normalisation parts are identical and idf is the only difference.
+  - idf comparison (mine / Okapi raw / Okapi used): said (df 1781) 0.163 / −1.731 / 1.554; bank (179) 2.458 / 2.369 / 2.369; chelsea (66) 3.451 / 3.419 / 3.419; asylum (27) 4.334 / 4.321 / 4.321.
+  - **Naïve Bayes: my accuracy 97.14%, scikit-learn MultinomialNB 97.14%, predictions agree on 420 / 420 test articles (100.00%).**
+  - Both thresholds (NB agreement ≥ 99%, BM25 overlap ≥ 8/10) pass, so no fixes were needed. All 30 tests still pass.
+- **Notes:** The idf difference is the "+ 1" inside my log (always positive) vs Okapi's raw log, which is negative for df > N/2 and is then floored to 0.25 × average idf. None of the 10 queries has a term with df > N/2, so the floor did not cause any of the differences. The swaps come from the "+ 1" giving common words relatively more weight ("world", df 639: 1.188 mine vs 0.824 Okapi; "best", df 368). The floor matters for very common words: "said" (in 85% of articles) gets idf 1.554 in Okapi, close to "price" (2.063), but 0.163 in mine. The Windows console may show "Naïve" as "Na�ve" when printing; `reports/validation.md` itself is UTF-8 and correct.
 
 ## Step 8: Query pool
 

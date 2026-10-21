@@ -273,3 +273,50 @@ its predicted label, not the exact probability.
 Both assume words are drawn independently (bag of words), both sum log probabilities, and both need smoothing
 for unseen words. Naïve Bayes uses add-one (Laplace) smoothing; the retrieval LM uses Dirichlet or
 Jelinek-Mercer, mixing in the collection model. The only extra piece in Naïve Bayes is the prior P(c).
+
+## Step 7: Proving the implementations are correct
+
+Writing BM25 and Naïve Bayes from scratch is only worth something if they are right. We checked them in two
+ways: unit tests on small examples with known answers (Steps 4–6), and, in this step, by running well-known
+library versions on exactly the same data and comparing the outputs (`src/validate.py`,
+results in `reports/validation.md`). The libraries were used only for checking, never inside our system.
+
+**1. BM25 vs `rank_bm25.BM25Okapi`.** Both were given the same token lists (from `tokens.pkl`, in doc_id order)
+and the same parameters (k1 = 1.5, b = 0.75). For 10 queries covering all five categories, we compared the
+top 10 articles:
+- The top result was the same for **all 10 queries**.
+- On average **9.7 of the 10** results were the same. Seven queries matched 10/10 and three matched 9/10, with
+  one article swapped near rank 10.
+
+**Why they are not 100% identical.** The two versions use a slightly different idf:
+- ours: idf = ln((N − df + 0.5)/(df + 0.5) **+ 1**), which is always positive;
+- BM25Okapi: idf = ln((N − df + 0.5)/(df + 0.5)), which goes negative for words in more than half the
+  articles, and those negative values are replaced by 0.25 × the average idf (the "epsilon floor").
+
+To prove idf is the *only* difference, we re-scored every article with our formula but plugged in
+BM25Okapi's idf values. The scores then matched BM25Okapi's to about 0.000000000000004, i.e. exactly, apart from
+computer rounding. So our tf saturation, k1, b and length normalisation are implemented correctly. The few
+swaps happen because the "+1" gives common words a bit more weight in our version. For "world" (in 639
+articles), our idf is 1.188 and Okapi's is 0.824, so an article that mentions "world" a lot can move up one
+place near rank 10.
+
+(Side note: the epsilon floor can do odd things to very common words. "said" is in 1,781 of 2,096 articles,
+so its raw Okapi idf is −1.731, but the floor raises it to 1.554, while ours gives it 0.163. Our "+1" version
+handles common words more sensibly, which is one reason it is the form used in modern search engines such as
+Lucene.)
+
+**2. Naïve Bayes vs scikit-learn `MultinomialNB(alpha = 1.0)`.** We trained scikit-learn's model on the same
+1,676 training token lists (`CountVectorizer(analyzer=lambda x: x)` just counts the tokens we already have,
+without tokenizing again) and predicted the same 420 test articles.
+- Our accuracy: **97.14%**; scikit-learn's: **97.14%**.
+- The two models made the **same prediction on 420 of 420 test articles (100%)**, including the same 12
+  mistakes.
+
+This is expected, because both compute the same thing: log prior + sum of add-one-smoothed log likelihoods,
+over the training vocabulary only. Identical predictions on every article show our counting, smoothing,
+log-space scoring and argmax are all correct.
+
+**How to say it in the viva:** "I validated my implementations against standard libraries on the same
+input. Naïve Bayes agrees with scikit-learn on 100% of test articles. BM25 has the same top result as
+rank_bm25 on every query and 97% overlap in the top 10. I showed the remaining difference is entirely the idf
+variant: with their idf, my scores match theirs to floating-point precision."
