@@ -33,11 +33,19 @@ appending to reports/viva_notes.md and committing as "Step N: <name>".
 
 ## Step 3: Preprocessing
 
-- **Status:** Not started
-- **Files:**
+- **Status:** Done
+- **Files:** `src/preprocess.py`, `tests/test_preprocess.py`; output `data/tokens.pkl`
 - **Key functions (with signatures):**
+  - `preprocess(text: str) -> list[str]`: lowercase → `[a-z]+` tokens → drop NLTK English stopwords and one-letter tokens → Porter stem. `STOPWORDS`, `STEMMER` and `TOKEN_PATTERN` are built once at module level; stopwords are downloaded if missing.
+  - `tokenize_all() -> dict[int, list[str]]`: `preprocess(title + " " + text)` for every article, keyed by doc_id; saves `data/tokens.pkl`
+  - `load_tokens() -> dict[int, list[str]]`: reads `data/tokens.pkl` (later steps use this)
 - **Results:**
-- **Notes:**
+  - 2,127 articles tokenized; total 463,020 tokens.
+  - **Vocabulary size: 18,980 distinct stems.**
+  - **Average length: 217.7 tokens per article** (vs 384 raw whitespace words in Step 2).
+  - Top 20 stems: said 6930, year 3194, mr 2900, would 2472, also 2037, peopl 1896, us 1885, new 1877, one 1851, game 1620, time 1609, say 1519, use 1457, could 1442, last 1359, make 1347, first 1298, two 1235, govern 1227, like 1195.
+  - Tests: 4 new, all 10 tests pass.
+- **Notes:** Stopwords are removed *before* stemming because the NLTK list holds whole words. "us" is not in the NLTK stopword list; here it is almost always the country "US", so keeping it is useful. Words like "said", "mr", "would" are very frequent but not stopwords; IDF (Step 4/5) will give them low weight. "U.K." becomes "u" + "k", which are dropped as one-letter tokens. `data/tokens.pkl` must be rebuilt if `preprocess()` ever changes.
 
 ## Step 4: Index
 

@@ -31,3 +31,42 @@ Result: 1,701 training and 426 test articles, with every category in both.
 **Why the UTF-8 / latin-1 fallback.** Some copies of the BBC files contain bytes that are not valid UTF-8, so
 reading them as UTF-8 would crash. latin-1 can decode any byte, so it is a safe fallback. (In our copy, every
 file was valid UTF-8, so the fallback was never needed.)
+
+## Step 3: Preprocessing (turning text into terms)
+
+All text in the project, both articles and search queries, goes through one function: `preprocess()` in
+`src/preprocess.py`. It does five things in order. Example: `"The elections were held in 2005!"`
+
+1. **Lowercase** → `"the elections were held in 2005!"`. "Election" and "election" should be the same term;
+   otherwise a query in lowercase would miss a capitalised word at the start of a sentence.
+2. **Keep only letter runs `[a-z]+`** → `the, elections, were, held, in`. This splits the text into tokens and
+   throws away punctuation and digits in one step. Numbers like years and scores rarely describe a topic and
+   would add thousands of useless terms.
+3. **Remove stopwords** (NLTK's English list, 198 words) → `elections, held`. Words like "the", "were", "in"
+   appear in almost every article, so they cannot tell articles apart. Removing them makes the index smaller and
+   the scores more meaningful.
+4. **Drop one-letter tokens**. These are mostly left-overs of punctuation, e.g. "U.K." becomes "u" and "k",
+   and "it's" becomes "it" and "s". On their own they carry no meaning.
+5. **Porter stemming** → `elect, held`. The stemmer cuts suffixes so that different forms of a word become one
+   term: "elections", "election", "elected" → "elect"; "running", "runs" → "run". A query for "election" then
+   also matches an article about "elections". Stems need not be real words ("peopl", "govern"); they only need to
+   be consistent.
+
+Stopwords are removed before stemming because the NLTK list contains whole words, not stems.
+
+**Results on our 2,127 articles:** 463,020 tokens in total, 217.7 tokens per article on average (down from about
+384 raw words), and a vocabulary of 18,980 distinct stems. The most frequent stems are "said", "year", "mr",
+"would". They are not on the stopword list, but IDF will give them a low weight later because they appear in
+most documents.
+
+**Why queries and documents must use the same function.** Retrieval works by matching query terms to the terms
+stored in the inverted index. A match only happens if both sides were turned into terms in exactly the same way.
+If documents were stemmed but queries were not, the query "elections" would look for the term "elections",
+but the index only contains "elect", so nothing would be found. The same goes for lowercasing and stopwords.
+Using one shared `preprocess()` guarantees that the query "elections" and an article containing "Elections"
+both become "elect" (this is checked by a test). For the same reason, the Naïve Bayes classifier uses this
+function too, so the words it learns from are the same as the words it sees when classifying.
+
+**Why save the tokens.** Preprocessing every article takes a few seconds. We do it once, save the result in
+`data/tokens.pkl`, and later steps (index, rankers, Naïve Bayes) load it with `load_tokens()`. This also
+guarantees every step works with exactly the same terms.
