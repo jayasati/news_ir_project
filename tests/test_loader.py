@@ -20,17 +20,33 @@ def test_columns(articles):
 def test_no_duplicates_remain(articles):
     assert not articles.duplicated(subset=["title", "text"]).any()
     assert not articles.duplicated(subset=["category", "title"]).any()
+    assert not articles.duplicated(subset=["category", "text"]).any()
+
+
+def test_near_copies_removed():
+    words = [f"word{i}" for i in range(100)]
+    base = " ".join(words)
+    one_word_changed = " ".join(["fixed"] + words[1:])
+    df = pd.DataFrame({
+        "category": ["tech", "tech", "sport", "tech"],
+        "title": ["Original", "Retitled", "Other sport", "Follow-up"],
+        # Row 1 changes one word of 100 (Jaccard 99/101 = 0.98); row 2 is the same words in another
+        # category; row 3 shares only half the words.
+        "text": [base, one_word_changed, base, " ".join(f"word{i}" for i in range(50, 150))],
+    })
+    out = remove_duplicates(df)
+    assert list(out["title"]) == ["Original", "Other sport", "Follow-up"]
 
 
 def test_remove_duplicates_keeps_first():
     df = pd.DataFrame({
-        "category": ["tech", "tech", "sport", "tech", "sport"],
-        "title": ["A", "A", "B", "A", "A"],
-        "text": ["same", "same", "other", "updated version", "different story"],
+        "category": ["tech", "tech", "sport", "tech", "sport", "tech"],
+        "title": ["A", "A", "B", "A", "A", "A again"],
+        "text": ["same", "same", "other", "updated version", "different story", "same"],
     })
     out = remove_duplicates(df)
-    # Row 1 is an exact copy, row 3 is a near-copy (same category + title); row 4 shares the title
-    # but is in another category, so it is kept.
+    # Row 1 is an exact copy, row 3 has the same category + title, row 5 has the same category + text
+    # (re-titled). Row 4 shares the title but is in another category, so it is kept.
     assert list(out["text"]) == ["same", "other", "different story"]
 
 

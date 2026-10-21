@@ -4,26 +4,37 @@
 
 **What the loader does.** `src/loader.py` reads every `.txt` file in `data/bbc/<category>/`. The folder name is
 the article's category, the first non-empty line is its title and the rest is its text. It then removes
-duplicates, numbers the articles (`doc_id` 0 to 2,126), marks each one as `train` or `test` and saves everything
+duplicates, numbers the articles (`doc_id` 0 to 2,057), marks each one as `train` or `test` and saves everything
 to `data/articles.csv`. Every later step reads that CSV through `load_articles()`, so all steps use the same
 articles and the same split.
 
-**What we found.** The BBC dataset has 2,225 files, but 129 of them repeat an earlier article, so 2,096 unique
-articles remain. Duplicates are removed in two passes:
+**What we found.** The BBC dataset has 2,225 files, but 167 of them repeat an earlier article, so 2,058 unique
+articles remain. Duplicates are removed in four passes, always keeping the first copy:
 1. **Exact copies** (same title and same text): 98 articles, most of them in tech (54).
-2. **Near-copies** (same category and same title): 31 more. These are earlier and later versions of the same
-   news story. For example, one says Glenn Hoddle "will be unveiled" as Wolves manager and the other says he
-   "has been unveiled", or one version has an extra paragraph. Their texts differ, so the exact check misses
-   them, but they are the same article for our purposes. We first found them in Step 5, when the same title
-   appeared twice in the search results, and 9 of the pairs had one copy in train and one in test. We checked
-   all 31 pairs by hand before removing them. A shared title in a *different* category is not treated as a duplicate.
+2. **Same category and same title**: 31 more. These are earlier and later versions of the same news story. For
+   example, one says Glenn Hoddle "will be unveiled" as Wolves manager and the other says he "has been unveiled",
+   or one version has an extra paragraph.
+3. **Same category and same text**: 35 more. The story is word for word the same, but the BBC re-published it
+   under a reworded headline, e.g. "Tory backing for ID cards" and "Conservative backing for ID cards".
+4. **Near-copies**: 3 more. A reworded headline *and* a tiny text change, such as a fixed typo ("Internet
+   Electronic" → "Internet Engineering") or a new paragraph break. We compare the *sets of words* in two
+   articles of the same category with the **Jaccard similarity** |A ∩ B| / |A ∪ B| (shared words divided by
+   all words) and remove a copy when it is at least 0.95. The three removed pairs score 0.985–1.0. The next most
+   similar pair scores only 0.85 and is a genuinely updated story ("talks will take place" versus "talks have
+   ended"), so it is kept.
+
+We did not find all of these at once. Rules 2–4 were added after we spotted repeated stories in our own search
+results (Step 5) and in the query pool (Step 8), and every pair was checked by hand before removal. Before the
+fix, 23 of these pairs had one copy in train and one in test. A shared title in a *different* category is never
+treated as a duplicate.
 
 **Why duplicates must be removed before splitting.**
 - *Data leakage.* If an article and its copy are split at random, one copy can land in the training set and
   the other in the test set. The Naïve Bayes classifier would then be "tested" on an article it has already
   seen during training. It would get that one right by memory, not by learning, so the test accuracy would be
   higher than the true accuracy on new articles. The test set must contain only articles the model has never
-  seen.
+  seen. We saw this happen: with rules 3 and 4 missing, accuracy was 97.14%; after removing those 38 copies it
+  fell to 96.60%. The higher number was partly the model recognising articles it had already seen.
 - *Fair retrieval scores.* In search, two identical articles take up two places in the ranking and count twice
   in IDF and document-frequency statistics. Duplicates would also make relevance judgements and metrics like
   precision@k misleading.
@@ -33,7 +44,7 @@ articles remain. Duplicates are removed in two passes:
 **Why a stratified 80/20 split.** "Stratified" means each category is split 80/20 separately, so train and
 test have the same category proportions as the whole dataset (for example, tech is about 16% of both).
 `random_state=42` fixes the random shuffle, so anyone who reruns the code gets exactly the same split.
-Result: 1,676 training and 420 test articles, with every category in both.
+Result: 1,646 training and 412 test articles, with every category in both.
 
 **Why the UTF-8 / latin-1 fallback.** Some copies of the BBC files contain bytes that are not valid UTF-8, so
 reading them as UTF-8 would crash. latin-1 can decode any byte, so it is a safe fallback. (In our copy, every
@@ -61,8 +72,8 @@ All text in the project, both articles and search queries, goes through one func
 
 Stopwords are removed before stemming because the NLTK list contains whole words, not stems.
 
-**Results on our 2,096 articles:** 453,140 tokens in total, 216.2 tokens per article on average (down from about
-382 raw words), and a vocabulary of 18,955 distinct stems. The most frequent stems are "said", "year", "mr",
+**Results on our 2,058 articles:** 444,650 tokens in total, 216.1 tokens per article on average (down from about
+381 raw words), and a vocabulary of 18,955 distinct stems. The most frequent stems are "said", "year", "mr",
 "would". They are not on the stopword list, but IDF will give them a low weight later because they appear in
 most documents.
 
@@ -88,11 +99,11 @@ words in each article ("article → words"), it lists, for each word, the articl
 
 Alongside the postings it stores the numbers the ranking formulas need:
 - `df(term)`, the **document frequency**: how many articles contain the term (the length of its postings list).
-  "elect" has df = 222. Rare terms (low df) are better at telling articles apart, which is what IDF measures.
+  "elect" has df = 215. Rare terms (low df) are better at telling articles apart, which is what IDF measures.
 - `cf[term]`, the **collection frequency**: how many times the term occurs in the whole collection. The language
   model uses it as the "background" probability of a word.
-- `doc_len[doc_id]` (tokens per article), `N` (2,096 articles), `total_tokens` (453,140) and `avgdl`
-  (216.2 tokens). BM25 uses these to treat long and short articles fairly.
+- `doc_len[doc_id]` (tokens per article), `N` (2,058 articles), `total_tokens` (444,650) and `avgdl`
+  (216.1 tokens). BM25 uses these to treat long and short articles fairly.
 - `doc_norm[doc_id]`, the length of each article's TF-IDF vector:
   `sqrt( Σ ((1 + log10 tf) · log10(N/df))² )`. TF-IDF cosine similarity divides by this number. It never
   changes, so we compute it once at build time rather than for every query.
@@ -105,17 +116,17 @@ D3 = india win cricket match match. Then `postings["apple"] = {D1: 1, D2: 1}` so
 `sqrt(log10(3/2)² + 3 · log10(3)²) ≈ 0.845`.
 
 **Why it is faster than scanning every article.** Without an index, answering "election" means reading all
-2,096 articles (about 453,000 words) and checking each one. With the index we do one dictionary lookup,
-`postings["elect"]`, and get the 222 matching articles immediately. The work depends on how many articles
+2,058 articles (about 445,000 words) and checking each one. With the index we do one dictionary lookup,
+`postings["elect"]`, and get the 215 matching articles immediately. The work depends on how many articles
 contain the query words, not on the size of the whole collection. Most words are rare: in a full
-term-by-article table (18,955 × 2,096 ≈ 40 million cells), only 298,012 cells (0.75%) are non-zero. The index
+term-by-article table (18,955 × 2,058 ≈ 39 million cells), only 292,454 cells (0.75%) are non-zero. The index
 stores just those, so it is also much smaller. The rankers in Step 5 use `candidates()` to score only the
 articles that contain at least one query term, and skip the rest.
 
 **Boolean search.** Each query is passed through `preprocess()` first, so it matches the stems in the index.
-- AND = intersection of postings sets: "election labour" → 142 articles containing both words.
-- OR = union: 304 articles containing either word.
-- NOT = AND(a) minus OR(b): "election" but not "labour" → 80 articles (142 + 80 = 222, all articles with "elect").
+- AND = intersection of postings sets: "election labour" → 137 articles containing both words.
+- OR = union: 294 articles containing either word.
+- NOT = AND(a) minus OR(b): "election" but not "labour" → 78 articles (137 + 78 = 215, all articles with "elect").
 Boolean search only says yes or no; it cannot rank results. That is why we need TF-IDF, BM25 and the language
 model next.
 
@@ -206,14 +217,15 @@ Query words that never occur anywhere (cf = 0) are skipped, since they would hav
    k1/b defaults work well across many collections. We measure this on our own queries in Step 9.
 
 You can see the difference in our demo. For "interest rates bank", TF-IDF ranks "House prices show slight
-increase" 4th, while BM25 and the LM put "Bank holds interest rate at 4.75%" and "UK interest rates held at
-4.75%" near the top. Those are more clearly about the query.
+increase" 4th and "Economy 'strong' in election year" 5th, while BM25 and the LM fill their top 5 with articles
+about interest-rate decisions, such as "Bank holds interest rate at 4.75%" and "Bank opts to leave rates on
+hold". Those are more clearly about the query.
 
 ## Step 6: Naïve Bayes classifier
 
 **What it does.** Given an article, it predicts its category (business, entertainment, politics, sport or
-tech). It learns from the 1,676 training articles only and is tested on the 420 test articles it has never
-seen. **Test accuracy: 97.14%** (408 of 420 correct).
+tech). It learns from the 1,646 training articles only and is tested on the 412 test articles it has never
+seen. **Test accuracy: 96.60%** (398 of 412 correct).
 
 **The model (multinomial Naïve Bayes).** Bayes' rule says P(c | d) ∝ P(c) × P(d | c). The "naïve" assumption
 is that the words of an article are independent of each other once we know the class, so P(d | c) is just
@@ -227,7 +239,7 @@ Training only needs counting:
     P(t | c) = (T_ct + 1) / (Σ_t' T_ct' + |V|)           (add-one smoothing, alpha = 1)
 
 T_ct is how many times word t appears in all training articles of class c, and |V| is the number of distinct
-words in the training set (17,187).
+words in the training set (17,287).
 
 **Textbook check (IIR Example 13.1).** Training: "Chinese Beijing Chinese", "Chinese Chinese Shanghai",
 "Chinese Macao" (class c) and "Tokyo Japan Chinese" (class j). |V| = 6. Class c has 8 words, 5 of them
@@ -255,15 +267,16 @@ every class and we would divide 0 by 0.
 
 **Explaining a prediction.** `top_words(c)` lists the words whose probability in c is highest compared with the
 best other class (log-likelihood ratio). For politics these are "tori" (Tory), "lib", "blunkett", "asylum",
-"ukip"; for sport "roddick", "refere", "cup", "rugbi"; for tech "nintendo", "gamer", "blog", "spam".
+"ukip"; for sport "roddick", "cup", "refere", "rugbi"; for tech "blog", "spam", "nintendo", "gamer".
 `explain(doc, c)` shows which words in one article pushed it towards c rather than the runner-up class.
 
-**Where it goes wrong.** Most of the 12 errors are genuinely mixed articles. "Ferdinand casts doubt over Glazer"
-is a sport article about a takeover, so words like "stake" and "sharehold" made it look like business. "Web
-radio takes Spanish rap global" is tech, but "rap" and "hip hop" point to entertainment. Naïve Bayes still gives
-most of these wrong answers a probability close to 1.000. Its probabilities are over-confident because the
-independence assumption counts related words ("hip" and "hop") as separate pieces of evidence. So we trust
-its predicted label, not the exact probability.
+**Where it goes wrong.** Most of the 14 errors are genuinely mixed articles. "Ferdinand casts doubt over Glazer"
+is a sport article about a takeover of Manchester United, so words like "glazer" and "stake" made it look like
+business. "CSI shows give 'unrealistic view'" is entertainment (a TV show), but "lab", "scienc" and "test" point
+to tech. Entertainment loses the most (recall 0.917), because arts stories about money, councils or technology
+read like politics or tech. Naïve Bayes still gives 13 of the 14 wrong answers a probability above 0.99. Its
+probabilities are over-confident because the independence assumption counts related words (like "lab" and
+"scienc") as separate pieces of evidence. So we trust its predicted label, not the exact probability.
 
 **How Naïve Bayes relates to the unigram language model.** They are the same model used in two directions.
 - In Step 5, each *article* has a unigram language model P(t | d), and we rank articles by how likely they are to
@@ -285,8 +298,9 @@ results in `reports/validation.md`). The libraries were used only for checking, 
 and the same parameters (k1 = 1.5, b = 0.75). For 10 queries covering all five categories, we compared the
 top 10 articles:
 - The top result was the same for **all 10 queries**.
-- On average **9.7 of the 10** results were the same. Seven queries matched 10/10 and three matched 9/10, with
-  one article swapped near rank 10.
+- **All 10 of the top 10** results were the same for every query (average overlap 10.0 / 10). (On an earlier
+  version of the data, before the last duplicates were removed, three queries matched 9/10 with one article
+  swapped near rank 10. The explanation below covers that case.)
 
 **Why they are not 100% identical.** The two versions use a slightly different idf:
 - ours: idf = ln((N − df + 0.5)/(df + 0.5) **+ 1**), which is always positive;
@@ -295,21 +309,21 @@ top 10 articles:
 
 To prove idf is the *only* difference, we re-scored every article with our formula but plugged in
 BM25Okapi's idf values. The scores then matched BM25Okapi's to about 0.000000000000004, i.e. exactly, apart from
-computer rounding. So our tf saturation, k1, b and length normalisation are implemented correctly. The few
-swaps happen because the "+1" gives common words a bit more weight in our version. For "world" (in 639
-articles), our idf is 1.188 and Okapi's is 0.824, so an article that mentions "world" a lot can move up one
+computer rounding. So our tf saturation, k1, b and length normalisation are implemented correctly. Any swaps
+happen because the "+1" gives common words a bit more weight in our version. For "world" (in 630
+articles), our idf is 1.183 and Okapi's is 0.818, so an article that mentions "world" a lot can move up one
 place near rank 10.
 
-(Side note: the epsilon floor can do odd things to very common words. "said" is in 1,781 of 2,096 articles,
-so its raw Okapi idf is −1.731, but the floor raises it to 1.554, while ours gives it 0.163. Our "+1" version
+(Side note: the epsilon floor can do odd things to very common words. "said" is in 1,746 of 2,058 articles,
+so its raw Okapi idf is −1.721, but the floor raises it to 1.552, while ours gives it 0.165. Our "+1" version
 handles common words more sensibly, which is one reason it is the form used in modern search engines such as
 Lucene.)
 
 **2. Naïve Bayes vs scikit-learn `MultinomialNB(alpha = 1.0)`.** We trained scikit-learn's model on the same
-1,676 training token lists (`CountVectorizer(analyzer=lambda x: x)` just counts the tokens we already have,
-without tokenizing again) and predicted the same 420 test articles.
-- Our accuracy: **97.14%**; scikit-learn's: **97.14%**.
-- The two models made the **same prediction on 420 of 420 test articles (100%)**, including the same 12
+1,646 training token lists (`CountVectorizer(analyzer=lambda x: x)` just counts the tokens we already have,
+without tokenizing again) and predicted the same 412 test articles.
+- Our accuracy: **96.60%**; scikit-learn's: **96.60%**.
+- The two models made the **same prediction on 412 of 412 test articles (100%)**, including the same 14
   mistakes.
 
 This is expected, because both compute the same thing: log prior + sum of add-one-smoothed log likelihoods,
@@ -318,8 +332,8 @@ log-space scoring and argmax are all correct.
 
 **How to say it in the viva:** "I validated my implementations against standard libraries on the same
 input. Naïve Bayes agrees with scikit-learn on 100% of test articles. BM25 has the same top result as
-rank_bm25 on every query and 97% overlap in the top 10. I showed the remaining difference is entirely the idf
-variant: with their idf, my scores match theirs to floating-point precision."
+rank_bm25 on every query and 100% overlap in the top 10. The formulas differ only in the idf variant, and I
+proved it: with their idf, my scores match theirs to floating-point precision."
 
 ## Step 8: The query pool (preparing relevance judgements)
 
@@ -330,7 +344,7 @@ query, but most of the 500 sport articles are about tennis, rugby or athletics a
 wrote 20 realistic queries (`data/queries.csv`, 4 per category, 2–4 words each, never just the category name)
 and judge the results ourselves.
 
-**What pooling is.** Judging all 2,096 articles for all 20 queries would mean 41,920 judgements, which is
+**What pooling is.** Judging all 2,058 articles for all 20 queries would mean 41,160 judgements, which is
 impossible by hand. Pooling is the standard shortcut used in TREC evaluations:
 1. Run every system (here TF-IDF, BM25 and the unigram LM) on every query.
 2. Take the top k results of each (k = 10, the "pool depth").
@@ -338,7 +352,7 @@ impossible by hand. Pooling is the standard shortcut used in TREC evaluations:
 4. A human judges only the pooled documents. Anything outside the pool is assumed not relevant.
 
 This works because a relevant article that none of the three models puts in its top 10 cannot change any of
-their top-10 scores anyway. Our pools have 11–18 articles per query (284 in total) instead of 30, because the
+their top-10 scores anyway. Our pools have 11–18 articles per query (289 in total) instead of 30, because the
 three models often agree on the same articles.
 
 **Limitation.** Pooling can miss relevant articles that all three models ranked low, so measures that depend
@@ -357,6 +371,12 @@ on knowing *every* relevant document (like recall) can be a little too optimisti
   first.
 - *Fair judging.* The pool is sorted by doc_id, so I could not see which model found an article or at what rank,
   which prevents bias towards one model. The `suggested_rel` column is only a hint (right category and contains
-  the rarest query word). It is 1 for 96% of rows, so it cannot replace reading the article.
+  the rarest query word). It is 1 for 97% of rows, so it cannot replace reading the article.
 
 The judgements become `data/qrels.csv` ("query relevance judgements"), which Step 9 uses to score the models.
+
+**Duplicates found while building the pool.** The first pool showed "Gadget show heralds MP3 season" and
+"Gadget show heralds MP3 Christmas" side by side: the same article with two headlines. That led to rules 3 and 4
+in Step 2 and a rebuild of everything from the loader to the pool. We did this *before* judging, because removing
+articles changes the doc_ids, and judgements made on the old pool would have pointed at the wrong articles.
+Judging a pool that still contains copies would also count the same story twice in precision@10.

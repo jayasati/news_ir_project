@@ -44,23 +44,55 @@ def load_raw(data_dir: str = "data/bbc") -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["category", "title", "text"])
 
 
+def near_copy_rows(df: pd.DataFrame, threshold: float = 0.95) -> list:
+    """Index labels of articles whose word set is almost the same as an earlier article in the same category.
+
+    Jaccard(A, B) = |A ∩ B| / |A ∪ B|, where A and B are the sets of lowercase words in the two texts.
+    Words are split on whitespace only: this is a duplicate check, not a tokenizer for retrieval.
+    """
+    to_drop = []
+    for _, group in df.groupby("category", sort=False):
+        word_sets = [(label, set(text.lower().split())) for label, text in zip(group.index, group["text"])]
+        dropped: set = set()
+        for i, (label_a, a) in enumerate(word_sets):
+            if label_a in dropped:
+                continue
+            for label_b, b in word_sets[i + 1:]:
+                # Quick check: Jaccard can only reach the threshold if the sizes are close enough.
+                if label_b in dropped or min(len(a), len(b)) < threshold * max(len(a), len(b)):
+                    continue
+                if len(a & b) / len(a | b) >= threshold:
+                    dropped.add(label_b)  # keep the earlier article, drop the later copy
+        to_drop.extend(dropped)
+    return to_drop
+
+
 def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     """Drop repeated articles, keeping the first copy; print counts per category before and after.
 
-    Two kinds of duplicate are removed:
+    Four kinds of duplicate are removed, in this order:
     1. exact copies: same title AND same text;
-    2. near-copies: same category AND same title. In the BBC data these are earlier/later versions of the
-       same story (an extra paragraph, reworded sentences), so exact matching alone misses them.
+    2. same category AND same title: earlier/later versions of the same story (an extra paragraph,
+       reworded sentences), so exact matching alone misses them;
+    3. same category AND same text: the same story re-published under a reworded headline;
+    4. same category AND word-set Jaccard >= 0.95: a re-titled copy with a typo fixed or one word changed.
     """
     before = df["category"].value_counts().sort_index()
     exact = df.drop_duplicates(subset=["title", "text"], keep="first")
-    deduped = exact.drop_duplicates(subset=["category", "title"], keep="first").reset_index(drop=True)
+    same_title = exact.drop_duplicates(subset=["category", "title"], keep="first")
+    same_text = same_title.drop_duplicates(subset=["category", "text"], keep="first")
+    deduped = same_text.drop(index=near_copy_rows(same_text)).reset_index(drop=True)
     after = deduped["category"].value_counts().sort_index()
+
+    def size(frame: pd.DataFrame) -> pd.Series:
+        return frame["category"].value_counts().sort_index()
 
     counts = pd.DataFrame({"before": before, "after": after})
     counts["removed"] = counts["before"] - counts["after"]
-    counts["exact"] = counts["before"] - exact["category"].value_counts().sort_index()
-    counts["same_title"] = counts["removed"] - counts["exact"]
+    counts["exact"] = counts["before"] - size(exact)
+    counts["same_title"] = size(exact) - size(same_title)
+    counts["same_text"] = size(same_title) - size(same_text)
+    counts["near_copy"] = size(same_text) - counts["after"]
     counts.loc["TOTAL"] = counts.sum()
     print("Articles per category before and after removing duplicates:")
     print(counts.to_string())

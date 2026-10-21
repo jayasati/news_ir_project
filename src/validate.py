@@ -31,7 +31,7 @@ QUERIES = DEMO_QUERIES + [
     "world cup rugby",                 # sport
     "broadband internet users",        # tech
 ]
-IDF_EXAMPLE_TERMS = ["said", "bank", "chelsea", "asylum"]  # a very common word, then rarer ones
+IDF_EXAMPLE_TERMS = ["said", "world", "bank", "chelsea", "asylum"]  # very common words, then rarer ones
 
 
 def okapi_top10(okapi: BM25Okapi, q_terms: list[str]) -> list[int]:
@@ -141,8 +141,8 @@ def to_markdown(bm25_rows: list[dict], idf_rows: list[dict], nb: dict) -> str:
         "",
         "The last column re-scores every document with my formula but BM25Okapi's idf values: the scores are",
         "identical up to floating-point rounding, so idf is the only difference. Because of the `+ 1`, my idf",
-        "gives common words relatively more weight (e.g. `world`, df 639: 1.188 vs 0.824), which is why a",
-        "document near rank 10 sometimes swaps.",
+        "gives common words relatively more weight (compare `world` in the table below), which can swap a",
+        "document near rank 10.",
         "",
         "| Term | df | My idf | Okapi raw idf | Okapi idf used |",
         "|---|---|---|---|---|",

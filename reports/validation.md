@@ -4,17 +4,17 @@
 
 | Query | Overlap /10 | Top result matches | My top doc | BM25Okapi top doc | Max score diff with Okapi idf |
 |---|---|---|---|---|---|
-| interest rates bank | 10 | yes | 136 | 136 | 1.8e-15 |
-| chelsea premiership | 10 | yes | 1487 | 1487 | 1.8e-15 |
-| mobile phone games | 10 | yes | 1815 | 1815 | 3.6e-15 |
-| oil prices economy | 9 | yes | 29 | 29 | 3.6e-15 |
-| oscar nominations best actress | 9 | yes | 562 | 562 | 3.6e-15 |
-| film box office | 10 | yes | 553 | 553 | 1.8e-15 |
-| general election labour tory | 10 | yes | 1188 | 1188 | 3.6e-15 |
-| immigration asylum policy | 10 | yes | 1058 | 1058 | 3.6e-15 |
-| world cup rugby | 9 | yes | 1629 | 1629 | 1.8e-15 |
-| broadband internet users | 10 | yes | 1896 | 1896 | 1.8e-15 |
-| **Average** | **9.7** | **10/10** | | | |
+| interest rates bank | 10 | yes | 136 | 136 | 3.6e-15 |
+| chelsea premiership | 10 | yes | 1470 | 1470 | 1.8e-15 |
+| mobile phone games | 10 | yes | 1788 | 1788 | 3.6e-15 |
+| oil prices economy | 10 | yes | 29 | 29 | 1.8e-15 |
+| oscar nominations best actress | 10 | yes | 559 | 559 | 3.6e-15 |
+| film box office | 10 | yes | 550 | 550 | 3.6e-15 |
+| general election labour tory | 10 | yes | 1177 | 1177 | 3.6e-15 |
+| immigration asylum policy | 10 | yes | 1052 | 1052 | 3.6e-15 |
+| world cup rugby | 10 | yes | 1610 | 1610 | 1.8e-15 |
+| broadband internet users | 10 | yes | 1868 | 1868 | 1.8e-15 |
+| **Average** | **10.0** | **10/10** | | | |
 
 The term-frequency and length parts of the two formulas are identical; only idf differs:
 
@@ -24,21 +24,22 @@ The term-frequency and length parts of the two formulas are identical; only idf 
 
 The last column re-scores every document with my formula but BM25Okapi's idf values: the scores are
 identical up to floating-point rounding, so idf is the only difference. Because of the `+ 1`, my idf
-gives common words relatively more weight (e.g. `world`, df 639: 1.188 vs 0.824), which is why a
-document near rank 10 sometimes swaps.
+gives common words relatively more weight (compare `world` in the table below), which can swap a
+document near rank 10.
 
 | Term | df | My idf | Okapi raw idf | Okapi idf used |
 |---|---|---|---|---|
-| said | 1781 | 0.163 | -1.731 | 1.554 |
-| bank | 179 | 2.458 | 2.369 | 2.369 |
-| chelsea | 66 | 3.451 | 3.419 | 3.419 |
-| asylum | 27 | 4.334 | 4.321 | 4.321 |
+| said | 1746 | 0.165 | -1.721 | 1.552 |
+| world | 630 | 1.183 | 0.818 | 0.818 |
+| bank | 178 | 2.445 | 2.355 | 2.355 |
+| chelsea | 65 | 3.448 | 3.416 | 3.416 |
+| asylum | 26 | 4.353 | 4.340 | 4.340 |
 
 ## 2. Naïve Bayes: my `NaiveBayes` vs scikit-learn `MultinomialNB(alpha=1.0)`
 
 | Model | Test accuracy |
 |---|---|
-| My NaiveBayes | 97.14% |
-| scikit-learn MultinomialNB | 97.14% |
+| My NaiveBayes | 96.60% |
+| scikit-learn MultinomialNB | 96.60% |
 
-Predictions agree on **420 / 420 test articles (100.00%)**.
+Predictions agree on **412 / 412 test articles (100.00%)**.
