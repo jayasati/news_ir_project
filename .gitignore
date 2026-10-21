@@ -3,14 +3,15 @@
 __pycache__/
 .pytest_cache/
 
-# Trained models (rebuilt by the code)
-models/*.pkl
-
-# Data: the BBC articles must not be republished.
-# Ignore everything in data/ except the query set and relevance judgements.
+# Data and models.
+# Originally the BBC articles were kept out of git. For the Streamlit Cloud deployment (Step 10) the student
+# chose to commit the four files the app loads: the trained models, the processed articles and their tokens.
+# The raw BBC download (data/bbc/) and the judging pool stay out of git.
 data/*
 !data/queries.csv
 !data/qrels.csv
+!data/articles.csv
+!data/tokens.pkl
 
 # Claude Code worktrees (separate checkouts, not project files)
 .claude/worktrees/
