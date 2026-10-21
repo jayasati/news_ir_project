@@ -13,11 +13,23 @@ appending to reports/viva_notes.md and committing as "Step N: <name>".
 
 ## Step 2: Loader
 
-- **Status:** Not started
-- **Files:**
+- **Status:** Done
+- **Files:** `src/loader.py`, `src/eda.py`, `tests/test_loader.py`; outputs `data/articles.csv`, `reports/figures/class_distribution.png`, `reports/figures/doc_length.png`
 - **Key functions (with signatures):**
+  - `read_text_file(path: Path) -> str`: UTF-8 with latin-1 fallback
+  - `split_title_and_text(content: str) -> tuple[str, str]`: first non-empty line is the title, the rest (stripped) is the text
+  - `load_raw(data_dir: str = "data/bbc") -> pd.DataFrame`: columns category, title, text; folders and files sorted so the order is the same on every run
+  - `remove_duplicates(df: pd.DataFrame) -> pd.DataFrame`: drops exact (title, text) repeats, keeps the first; prints counts per category
+  - `add_split(df: pd.DataFrame) -> pd.DataFrame`: adds split = train/test (stratified 80/20, random_state=42)
+  - `load_articles() -> pd.DataFrame`: reads `data/articles.csv` (all later steps use this)
+  - `src/eda.py`: `plot_class_distribution(df, path) -> None`, `plot_doc_length(df, path) -> None`
 - **Results:**
-- **Notes:**
+  - Duplicates removed: business 510→503 (−7), entertainment 386→369 (−17), politics 417→403 (−14), sport 511→505 (−6), tech 401→347 (−54); total 2,225→2,127 (−98).
+  - Split: train 1,701 / test 426. Per category (train/test): business 402/101, entertainment 295/74, politics 322/81, sport 404/101, tech 278/69.
+  - Words per article (whitespace count, title + text): min 89, median 331, mean 384, max 4,432.
+  - `data/articles.csv` columns: doc_id (0..2126), category, title, text, split.
+  - Tests: 6 passed (`tests/test_loader.py`).
+- **Notes:** In this copy of the dataset, every file decoded as UTF-8, so the latin-1 fallback is kept only as a safety net. No duplicate appears in two different categories. Duplicates are removed *before* doc_id and the split are assigned, so ids have no gaps and no article can be in both train and test. The whitespace word count in `eda.py` is only for the length plot; it is not a tokenizer used for retrieval or classification. The tests read `data/articles.csv`, so run `python -m src.loader` before `pytest`.
 
 ## Step 3: Preprocessing
 
