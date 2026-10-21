@@ -8,8 +8,15 @@ duplicates, numbers the articles (`doc_id` 0 to 2,126), marks each one as `train
 to `data/articles.csv`. Every later step reads that CSV through `load_articles()`, so all steps use the same
 articles and the same split.
 
-**What we found.** The BBC dataset has 2,225 files, but 98 of them repeat an earlier article word for word (same
-title and same text). Most are in tech (54). After removing them, 2,127 unique articles remain.
+**What we found.** The BBC dataset has 2,225 files, but 129 of them repeat an earlier article, so 2,096 unique
+articles remain. Duplicates are removed in two passes:
+1. **Exact copies** (same title and same text): 98 articles, most of them in tech (54).
+2. **Near-copies** (same category and same title): 31 more. These are earlier and later versions of the same
+   news story. For example, one says Glenn Hoddle "will be unveiled" as Wolves manager and the other says he
+   "has been unveiled", or one version has an extra paragraph. Their texts differ, so the exact check misses
+   them, but they are the same article for our purposes. We first found them in Step 5, when the same title
+   appeared twice in the search results, and 9 of the pairs had one copy in train and one in test. We checked
+   all 31 pairs by hand before removing them. A shared title in a *different* category is not treated as a duplicate.
 
 **Why duplicates must be removed before splitting.**
 - *Data leakage.* If an article and its copy are split at random, one copy can land in the training set and
@@ -26,7 +33,7 @@ title and same text). Most are in tech (54). After removing them, 2,127 unique a
 **Why a stratified 80/20 split.** "Stratified" means each category is split 80/20 separately, so train and
 test have the same category proportions as the whole dataset (for example, tech is about 16% of both).
 `random_state=42` fixes the random shuffle, so anyone who reruns the code gets exactly the same split.
-Result: 1,701 training and 426 test articles, with every category in both.
+Result: 1,676 training and 420 test articles, with every category in both.
 
 **Why the UTF-8 / latin-1 fallback.** Some copies of the BBC files contain bytes that are not valid UTF-8, so
 reading them as UTF-8 would crash. latin-1 can decode any byte, so it is a safe fallback. (In our copy, every
@@ -54,8 +61,8 @@ All text in the project, both articles and search queries, goes through one func
 
 Stopwords are removed before stemming because the NLTK list contains whole words, not stems.
 
-**Results on our 2,127 articles:** 463,020 tokens in total, 217.7 tokens per article on average (down from about
-384 raw words), and a vocabulary of 18,980 distinct stems. The most frequent stems are "said", "year", "mr",
+**Results on our 2,096 articles:** 453,140 tokens in total, 216.2 tokens per article on average (down from about
+382 raw words), and a vocabulary of 18,955 distinct stems. The most frequent stems are "said", "year", "mr",
 "would". They are not on the stopword list, but IDF will give them a low weight later because they appear in
 most documents.
 
@@ -81,11 +88,11 @@ words in each article ("article → words"), it lists, for each word, the articl
 
 Alongside the postings it stores the numbers the ranking formulas need:
 - `df(term)`, the **document frequency**: how many articles contain the term (the length of its postings list).
-  "elect" has df = 228. Rare terms (low df) are better at telling articles apart, which is what IDF measures.
+  "elect" has df = 222. Rare terms (low df) are better at telling articles apart, which is what IDF measures.
 - `cf[term]`, the **collection frequency**: how many times the term occurs in the whole collection. The language
   model uses it as the "background" probability of a word.
-- `doc_len[doc_id]` (tokens per article), `N` (2,127 articles), `total_tokens` (463,020) and `avgdl`
-  (217.7 tokens). BM25 uses these to treat long and short articles fairly.
+- `doc_len[doc_id]` (tokens per article), `N` (2,096 articles), `total_tokens` (453,140) and `avgdl`
+  (216.2 tokens). BM25 uses these to treat long and short articles fairly.
 - `doc_norm[doc_id]`, the length of each article's TF-IDF vector:
   `sqrt( Σ ((1 + log10 tf) · log10(N/df))² )`. TF-IDF cosine similarity divides by this number. It never
   changes, so we compute it once at build time rather than for every query.
@@ -98,17 +105,17 @@ D3 = india win cricket match match. Then `postings["apple"] = {D1: 1, D2: 1}` so
 `sqrt(log10(3/2)² + 3 · log10(3)²) ≈ 0.845`.
 
 **Why it is faster than scanning every article.** Without an index, answering "election" means reading all
-2,127 articles (about 463,000 words) and checking each one. With the index we do one dictionary lookup,
-`postings["elect"]`, and get the 228 matching articles immediately. The work depends on how many articles
+2,096 articles (about 453,000 words) and checking each one. With the index we do one dictionary lookup,
+`postings["elect"]`, and get the 222 matching articles immediately. The work depends on how many articles
 contain the query words, not on the size of the whole collection. Most words are rare: in a full
-term-by-article table (18,980 × 2,127 ≈ 40 million cells), only 303,945 cells (0.75%) are non-zero. The index
+term-by-article table (18,955 × 2,096 ≈ 40 million cells), only 298,012 cells (0.75%) are non-zero. The index
 stores just those, so it is also much smaller. The rankers in Step 5 use `candidates()` to score only the
 articles that contain at least one query term, and skip the rest.
 
 **Boolean search.** Each query is passed through `preprocess()` first, so it matches the stems in the index.
-- AND = intersection of postings sets: "election labour" → 148 articles containing both words.
-- OR = union: 310 articles containing either word.
-- NOT = AND(a) minus OR(b): "election" but not "labour" → 80 articles (148 + 80 = 228, all articles with "elect").
+- AND = intersection of postings sets: "election labour" → 142 articles containing both words.
+- OR = union: 304 articles containing either word.
+- NOT = AND(a) minus OR(b): "election" but not "labour" → 80 articles (142 + 80 = 222, all articles with "elect").
 Boolean search only says yes or no; it cannot rank results. That is why we need TF-IDF, BM25 and the language
 model next.
 
@@ -182,7 +189,7 @@ D1: ln(0.9 × 1/4 + 0.1 × 2/13) + ln(0.9 × 1/4 + 0.1 × 1/13) = ln 0.2404 + ln
 D2 has no "iphone": ln 0.2404 + ln(0 + 0.1 × 1/13) = −1.426 − 4.868 = **−6.293**. The missing word costs a lot
 but does not make the score −∞.
 (With Dirichlet μ = 2000 the toy scores are almost equal, −4.431 vs −4.438, because μ is huge compared with
-4-word documents. On real articles, about 218 tokens long, μ = 2000 is a sensible size.)
+4-word documents. On real articles, about 216 tokens long, μ = 2000 is a sensible size.)
 Query words that never occur anywhere (cf = 0) are skipped, since they would have probability 0 everywhere.
 
 ### Why BM25 usually beats plain TF-IDF

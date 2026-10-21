@@ -19,17 +19,19 @@ def test_columns(articles):
 
 def test_no_duplicates_remain(articles):
     assert not articles.duplicated(subset=["title", "text"]).any()
+    assert not articles.duplicated(subset=["category", "title"]).any()
 
 
 def test_remove_duplicates_keeps_first():
     df = pd.DataFrame({
-        "category": ["tech", "tech", "sport"],
-        "title": ["A", "A", "B"],
-        "text": ["same", "same", "other"],
+        "category": ["tech", "tech", "sport", "tech", "sport"],
+        "title": ["A", "A", "B", "A", "A"],
+        "text": ["same", "same", "other", "updated version", "different story"],
     })
     out = remove_duplicates(df)
-    assert len(out) == 2
-    assert list(out["title"]) == ["A", "B"]
+    # Row 1 is an exact copy, row 3 is a near-copy (same category + title); row 4 shares the title
+    # but is in another category, so it is kept.
+    assert list(out["text"]) == ["same", "other", "different story"]
 
 
 def test_doc_ids_unique_and_contiguous(articles):

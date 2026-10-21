@@ -45,13 +45,22 @@ def load_raw(data_dir: str = "data/bbc") -> pd.DataFrame:
 
 
 def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
-    """Drop articles whose title and text exactly match an earlier article; print counts before and after."""
+    """Drop repeated articles, keeping the first copy; print counts per category before and after.
+
+    Two kinds of duplicate are removed:
+    1. exact copies: same title AND same text;
+    2. near-copies: same category AND same title. In the BBC data these are earlier/later versions of the
+       same story (an extra paragraph, reworded sentences), so exact matching alone misses them.
+    """
     before = df["category"].value_counts().sort_index()
-    deduped = df.drop_duplicates(subset=["title", "text"], keep="first").reset_index(drop=True)
+    exact = df.drop_duplicates(subset=["title", "text"], keep="first")
+    deduped = exact.drop_duplicates(subset=["category", "title"], keep="first").reset_index(drop=True)
     after = deduped["category"].value_counts().sort_index()
 
     counts = pd.DataFrame({"before": before, "after": after})
     counts["removed"] = counts["before"] - counts["after"]
+    counts["exact"] = counts["before"] - exact["category"].value_counts().sort_index()
+    counts["same_title"] = counts["removed"] - counts["exact"]
     counts.loc["TOTAL"] = counts.sum()
     print("Articles per category before and after removing duplicates:")
     print(counts.to_string())
