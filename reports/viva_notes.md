@@ -376,10 +376,10 @@ on knowing *every* relevant document (like recall) can be a little too optimisti
 **How the judging was actually done (be open about this in the viva).** To save time, a large language model
 (Claude) drafted the judgements first: it read every one of the 289 pooled articles in full and proposed a grade
 (0/1/2) with a one-line reason, using the same rule as above and without seeing which ranker found each article.
-I then reviewed every draft myself, against the article, and wrote my own final grade into the `rel` column,
-changing the draft where I disagreed. Using LLMs to draft relevance judgements is an accepted research practice,
-but the final judgements are mine and I am responsible for them. Step 9 reports how often my final grades agreed
-with the drafts. *(TODO after review: fill in how many of the 289 drafts I changed.)*
+I then looked at the drafts and agreed with all of them, so my final grades (`rel`) are the drafts unchanged:
+0 of 289 changed. Using LLMs to draft relevance judgements is an accepted research practice, but the judgements
+are now mine and I am responsible for them. An examiner may fairly point out that unchanged drafts mean the
+"ground truth" is really the model's reading of the articles; that is a limitation I state in the results.
 
 The judgements become `data/qrels.csv` ("query relevance judgements"), which Step 9 uses to score the models.
 
@@ -388,3 +388,68 @@ The judgements become `data/qrels.csv` ("query relevance judgements"), which Ste
 in Step 2 and a rebuild of everything from the loader to the pool. We did this *before* judging, because removing
 articles changes the doc_ids, and judgements made on the old pool would have pointed at the wrong articles.
 Judging a pool that still contains copies would also count the same story twice in precision@10.
+
+## Step 9: Evaluation (how good are the search models and the classifier?)
+
+All metrics are written from scratch in `src/evaluate.py` and checked by a hand-worked test. A document counts as
+**relevant** if its grade is 1 or 2; nDCG also uses the grade itself.
+
+**The metrics, with the test example.** Ranking = [d1, d2, d3, d4, d5]; grades d1 = 2, d3 = 1, d6 = 1 (d6 is
+never retrieved), everything else 0. So there are R = 3 relevant documents.
+- **Precision@k**: of the top k results, what fraction is relevant? P@3 = 2/3 (d1, d3). It measures what a
+  user sees on the first screen.
+- **Recall@k**: of all relevant documents, what fraction is in the top k? R@5 = 2/3 (d6 is missing).
+- **Average precision (AP)**: walk down the ranking and, every time you meet a relevant document, note the
+  precision at that point; add these up and divide by R. AP = (P@1 + P@3) / 3 = (1 + 2/3) / 3 = 5/9 ≈ 0.556.
+  Dividing by R (not by the number found) means a relevant document that is never retrieved counts as 0. AP
+  rewards putting relevant documents *early*.
+- **MAP**: the mean of AP over all queries, a one-number summary of the whole system.
+- **nDCG@k**: uses grades. Each result earns gain = grade / log2(rank + 1), so a "2" at rank 1 earns 2, a "1" at
+  rank 3 earns 1/log2(4) = 0.5. That sum (DCG) is divided by the best possible DCG (grades sorted 2, 1, 1),
+  giving a score between 0 and 1. Here 2.5 / 3.131 ≈ 0.80. It rewards putting *highly* relevant documents first.
+
+**Retrieval results (20 queries).**
+
+| Model | P@5 | P@10 | MAP | nDCG@10 |
+|---|---|---|---|---|
+| TF-IDF | 0.870 | 0.790 | 0.813 | 0.777 |
+| BM25 | **0.960** | **0.850** | **0.929** | **0.857** |
+| Unigram LM (Dirichlet) | 0.910 | 0.825 | 0.873 | 0.838 |
+
+BM25 is best on every measure, the LM is second and TF-IDF third, which matches the theory from Step 5.
+
+**Is the difference real?** With only 20 queries, one query can move the mean a lot, so I also compared the
+models query by query (a **sign test**: count on how many queries A beats B and ask how likely that split would
+be if both were equally good, like coin flips).
+- BM25 beats TF-IDF on 14 queries, loses on 5 (p = 0.064): a clear tendency, but not proven at the usual 5% level.
+- BM25 beats the LM on 15, loses on 4 (p = 0.019): below 5%, but since I ran three tests at once the stricter
+  (Bonferroni) threshold is 0.05 / 3 = 0.017, so I call it suggestive, not proven.
+- The LM vs TF-IDF (11 vs 8) is no real difference.
+So the honest conclusion is: "BM25 scored best, and consistently so, but 20 queries are too few to prove it."
+
+**A query that shows why BM25 helps.** For "mobile phone games", TF-IDF's AP is 0.23 but BM25's is 1.00. The
+word "game" appears in 420 articles (mostly sport), so its idf is low; TF-IDF's cosine then prefers short
+articles full of "mobile" and "phone" (its top 4 are general phone stories, all judged not relevant). BM25's tf
+saturation stops "mobile" and "phone" from dominating, so articles that contain all three words win.
+
+**Parameter sweeps (scored by MAP).**
+- BM25: MAP only moves between 0.908 and 0.936 over 12 settings. b = 0.75 is best for every k1, and a larger k1
+  helps slightly (best k1 = 2.0: 0.936 vs default 0.929). The chart's y-axis is zoomed in, so the lines look
+  further apart than they are. The defaults are already good.
+- Dirichlet LM: MAP falls steadily as mu grows (500: 0.914 → 3000: 0.850). A smaller mu means less smoothing,
+  i.e. more trust in the words actually in the article; our articles are long enough (≈ 216 tokens) that heavy
+  smoothing towards the whole collection blurs them.
+- **Pool bias**: only documents in the pool were judged; anything else counts as not relevant. The pool came
+  from the default settings, so the sweep is tilted towards them, and the same 20 queries were used for both
+  tuning and scoring. Treat the best settings as hints, not results.
+
+**Classification results (412 test articles).** Accuracy 96.6%, macro-F1 0.964 (macro-F1 averages F1 over the
+five classes equally, so small classes count as much as big ones). Sport is almost perfect (F1 0.995);
+entertainment has the lowest recall (0.917). The most common confusions are entertainment → politics (4, e.g.
+"Media seek Jackson 'juror' notes", a court story), business → politics (3) and business → tech (3): articles
+that really mix two topics.
+
+**Limitations to state openly.** 20 queries; a depth-10 pool from the same three systems; relevance drafted by
+an LLM and accepted unchanged by me; recall and MAP are optimistic because relevant articles outside the pool are
+unknown. P@5, P@10 and nDCG@10 are the most trustworthy numbers, because every top-10 result of the default
+rankers was judged.

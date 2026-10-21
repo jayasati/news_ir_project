@@ -218,16 +218,34 @@ appending to reports/viva_notes.md and committing as "Step N: <name>".
   - The pool is sorted by doc_id, so the judge cannot see which ranker found a document or at what rank.
   - suggested_rel is weak evidence: it is 1 for 97% of rows, so it cannot replace reading the snippet. Judge on whether the article is *about* the query topic.
   - `pool_to_judge.csv` is written as UTF-8 with a byte-order mark so Excel shows £ etc. correctly; when saving from Excel use "CSV UTF-8". pandas reads it normally.
-  - **LLM draft judgements (added after the step was committed):** at the student's request, Claude (claude-opus-5-5, in the Claude Code session) read every pooled article in full and added two columns to `data/pool_to_judge.csv`: `llm_rel` (0/1/2) and `llm_reason` (one line). Grading rule: 2 = mainly about the query topic, 1 = clearly relevant but only part of the story, 0 = not relevant or only mentioned in passing. Rows were read in doc_id order without seeing which ranker found them; `suggested_rel` was not shown. Result: 122 × 2, 95 × 1, 72 × 0. 63 of the 279 rows with suggested_rel = 1 were graded 0, which confirms suggested_rel is a weak hint. Every query has at least one relevant document; the fewest highly relevant are "airline job cuts" and "apple ipod sales" (1 each). `rel` is still empty: the student reviews every row and writes the final grade into `rel`. **Do not rerun `python -m src.pool`**: it rebuilds the file and would erase `llm_rel`, `llm_reason` and `rel`.
+  - **LLM draft judgements (added after the step was committed):** at the student's request, Claude (claude-opus-5-5, in the Claude Code session) read every pooled article in full and added two columns to `data/pool_to_judge.csv`: `llm_rel` (0/1/2) and `llm_reason` (one line). Grading rule: 2 = mainly about the query topic, 1 = clearly relevant but only part of the story, 0 = not relevant or only mentioned in passing. Rows were read in doc_id order without seeing which ranker found them; `suggested_rel` was not shown. Result: 122 × 2, 95 × 1, 72 × 0. 63 of the 279 rows with suggested_rel = 1 were graded 0, which confirms suggested_rel is a weak hint. Every query has at least one relevant document; the fewest highly relevant are "airline job cuts" and "apple ipod sales" (1 each). In Step 9 the student stated they agreed with all `llm_rel` grades, so `rel` = `llm_rel` for all 289 rows (0 changed). **Do not rerun `python -m src.pool`**: it rebuilds the file and would erase `llm_rel`, `llm_reason` and `rel`.
   - **Resolved before judging:** the first pool (284 rows) showed "Gadget show heralds MP3 season" and "... MP3 Christmas" side by side: identical text with a re-worded headline. Step 2 now also removes same-category + same-text copies (35) and near-copies (3), and Steps 2–8 were rebuilt, so doc_ids changed. **Only the current `pool_to_judge.csv` (289 rows, 2,058 articles) is valid for judging.**
 
 ## Step 9: Evaluation
 
-- **Status:** Not started
-- **Files:**
+- **Status:** Done
+- **Files:** `src/evaluate.py`, `tests/test_evaluate.py`; outputs `data/qrels.csv` (committed), `reports/results.md`, `reports/figures/bm25_sweep.png`, `reports/figures/lm_mu_sweep.png`, `reports/figures/confusion_matrix.png`
 - **Key functions (with signatures):**
+  - `build_qrels() -> pd.DataFrame` (writes `data/qrels.csv`; refuses to run if any `rel` is empty), `load_qrels() -> dict[int, dict[int, int]]`
+  - `precision_at_k(ranked: list[int], qrels: dict[int, int], k: int) -> float`, `recall_at_k(ranked, qrels, k) -> float`
+  - `average_precision(ranked: list[int], qrels: dict[int, int]) -> float`: `(1/R) Σ P@i` over relevant ranks; unretrieved relevant docs add 0
+  - `mean_average_precision(runs: dict[int, list[int]], qrels: dict[int, dict[int, int]]) -> float`
+  - `dcg_at_k(gains: list[int], k: int) -> float` (`Σ rel_i / log2(i+1)`), `ndcg_at_k(ranked, qrels, k) -> float`
+  - `sign_test_p(wins: int, losses: int) -> float`: two-sided sign test with `math.comb`
+  - `run_queries(ranker, index, queries, **params) -> dict[int, list[int]]` (depth 1000), `score_runs(runs, qrels) -> dict[str, float]`, `compare_per_query(runs_a, runs_b, qrels) -> tuple[int, int, int, float]`
+  - `sweep_bm25(index, queries, qrels) -> pd.DataFrame`, `sweep_lm(index, queries, qrels) -> pd.DataFrame`, `evaluate_classifier(articles, tokens) -> dict`, plotting and report helpers
 - **Results:**
-- **Notes:**
+  - Judgements: 289 pairs, 20 queries (0: 72, 1: 95, 2: 122); LLM-drafted, accepted unchanged by the student.
+  - Retrieval (default parameters), P@5 / P@10 / R@10 / MAP / nDCG@10:
+    - TF-IDF 0.870 / 0.790 / 0.743 / 0.813 / 0.777
+    - **BM25 (k1 1.5, b 0.75) 0.960 / 0.850 / 0.815 / 0.929 / 0.857**
+    - LM Dirichlet (mu 2000) 0.910 / 0.825 / 0.772 / 0.873 / 0.838
+  - Per-query AP, sign test: BM25 vs TF-IDF 14 wins / 1 tie / 5 losses, p = 0.064; LM vs TF-IDF 11/1/8, p = 0.648; BM25 vs LM 15/1/4, p = 0.019 (not significant after Bonferroni for 3 tests, threshold 0.017). Largest gap: "mobile phone games" (TF-IDF 0.230, BM25 1.000, LM 0.603).
+  - BM25 sweep MAP 0.908–0.936; best k1 = 2.0, b = 0.75 (0.936) vs default 0.929; b = 0.75 best for every k1; MAP rises with k1.
+  - LM sweep MAP falls steadily as mu grows: mu 500 0.914, 1000 0.896, 2000 0.873, 3000 0.850.
+  - Classification (test, 412 articles): accuracy 0.9660, macro-F1 0.9643; top confusions entertainment→politics 4, business→politics 3, business→tech 3, entertainment→tech 2, politics→tech 1.
+  - Tests: 6 new (hand-worked P@k, R@k, AP = 5/9, MAP = 7/9, nDCG@5 ≈ 0.7985, sign test); all 40 pass.
+- **Notes:** Documents outside the pool count as not relevant, so recall and MAP are optimistic and the parameter sweep is biased towards the default settings the pool came from; the sweep is tuned and scored on the same 20 queries. P@k and nDCG@10 are the most trustworthy numbers. The interpretation in `results.md` is generated from the numbers (with a Bonferroni check) so it cannot claim more than the tables show. Why TF-IDF fails on "mobile phone games": "game" is in 420 articles (mostly sport), so its idf is low; cosine favours short articles dense in "mobile"/"phone" (top 4 all about phones in general, rel 0), while BM25's tf saturation lets articles containing all three words win.
 
 ## Step 10: App
 
