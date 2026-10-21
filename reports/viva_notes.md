@@ -373,6 +373,14 @@ on knowing *every* relevant document (like recall) can be a little too optimisti
   which prevents bias towards one model. The `suggested_rel` column is only a hint (right category and contains
   the rarest query word). It is 1 for 97% of rows, so it cannot replace reading the article.
 
+**How the judging was actually done (be open about this in the viva).** To save time, a large language model
+(Claude) drafted the judgements first: it read every one of the 289 pooled articles in full and proposed a grade
+(0/1/2) with a one-line reason, using the same rule as above and without seeing which ranker found each article.
+I then reviewed every draft myself, against the article, and wrote my own final grade into the `rel` column,
+changing the draft where I disagreed. Using LLMs to draft relevance judgements is an accepted research practice,
+but the final judgements are mine and I am responsible for them. Step 9 reports how often my final grades agreed
+with the drafts. *(TODO after review: fill in how many of the 289 drafts I changed.)*
+
 The judgements become `data/qrels.csv` ("query relevance judgements"), which Step 9 uses to score the models.
 
 **Duplicates found while building the pool.** The first pool showed "Gadget show heralds MP3 season" and
