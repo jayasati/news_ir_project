@@ -194,11 +194,25 @@ appending to reports/viva_notes.md and committing as "Step N: <name>".
 
 ## Step 8: Query pool
 
-- **Status:** Not started
-- **Files:**
+- **Status:** Done (pool built); waiting for manual relevance judgements in `data/pool_to_judge.csv`
+- **Files:** `data/queries.csv` (committed), `src/pool.py`, `tests/test_pool.py`; output `data/pool_to_judge.csv` (git-ignored, contains article text)
 - **Key functions (with signatures):**
+  - `load_queries() -> pd.DataFrame`: reads `data/queries.csv` (query_id, query, intended_category)
+  - `pool_for_query(index: InvertedIndex, query: str, k: int = 10) -> list[int]`: union of the top 10 of TF-IDF, BM25 and Unigram LM, sorted by doc_id
+  - `rarest_term(index: InvertedIndex, q_terms: list[str]) -> str | None`: query term with the highest idf (lowest df > 0)
+  - `suggest_rel(doc_tokens: set[str], category: str, intended_category: str, rare_term: str | None) -> int`: 1 if same category AND contains the rarest term, else 0
+  - `build_pool() -> pd.DataFrame`: columns query_id, query, doc_id, title, category, snippet (first 300 chars, line breaks → spaces), suggested_rel, rel (empty)
 - **Results:**
+  - 20 queries, 4 per category. business: interest rates bank; oil prices rise; stock market shares; airline job cuts. entertainment: oscar nominations; box office film; album chart singer; television comedy show. politics: general election labour; asylum immigration policy; tory tax plans; house lords reform. sport: chelsea premiership; six nations rugby; australian open tennis; olympic athletics drugs. tech: mobile phone games; broadband internet users; computer virus security; apple ipod sales.
+  - Pool size per query (query_id: size): 1: 13, 2: 15, 3: 14, 4: 17, 5: 13, 6: 11, 7: 12, 8: 14, 9: 17, 10: 12, 11: 13, 12: 13, 13: 16, 14: 16, 15: 14, 16: 16, 17: 18, 18: 14, 19: 14, 20: 12.
+  - **Total rows to judge: 284** (min 11, max 18, mean 14.2 per query; the maximum possible is 30, so the three rankers agree a lot).
+  - 278 / 284 pooled docs are in the query's intended category; suggested_rel = 1 for 274 / 284.
+  - Tests: 3 new, all 33 pass.
 - **Notes:**
+  - The pool is sorted by doc_id, so the judge cannot see which ranker found a document or at what rank.
+  - suggested_rel is weak evidence: it is 1 for 96% of rows, so it cannot replace reading the snippet. Judge on whether the article is *about* the query topic.
+  - `pool_to_judge.csv` is written as UTF-8 with a byte-order mark so Excel shows £ etc. correctly; when saving from Excel use "CSV UTF-8". pandas reads it normally.
+  - **Open issue (found while building the pool):** 35 pairs of articles have word-for-word identical text but a re-worded title (e.g. "Tory backing for ID cards" / "Conservative backing for ID cards"; "Gadget show heralds MP3 season" / "... MP3 Christmas", both in the query 20 pool). None crosses categories; 11 pairs are split across train/test. Neither Step 2 rule (same title + text; same category + title) catches them. Fixing this changes doc_ids, so it must be decided **before** the pool is judged.
 
 ## Step 9: Evaluation
 

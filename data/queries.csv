@@ -1,0 +1,21 @@
+query_id,query,intended_category
+1,interest rates bank,business
+2,oil prices rise,business
+3,stock market shares,business
+4,airline job cuts,business
+5,oscar nominations,entertainment
+6,box office film,entertainment
+7,album chart singer,entertainment
+8,television comedy show,entertainment
+9,general election labour,politics
+10,asylum immigration policy,politics
+11,tory tax plans,politics
+12,house lords reform,politics
+13,chelsea premiership,sport
+14,six nations rugby,sport
+15,australian open tennis,sport
+16,olympic athletics drugs,sport
+17,mobile phone games,tech
+18,broadband internet users,tech
+19,computer virus security,tech
+20,apple ipod sales,tech

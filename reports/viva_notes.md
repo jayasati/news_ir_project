@@ -320,3 +320,43 @@ log-space scoring and argmax are all correct.
 input. Naïve Bayes agrees with scikit-learn on 100% of test articles. BM25 has the same top result as
 rank_bm25 on every query and 97% overlap in the top 10. I showed the remaining difference is entirely the idf
 variant: with their idf, my scores match theirs to floating-point precision."
+
+## Step 8: The query pool (preparing relevance judgements)
+
+**Why we need relevance judgements.** To measure how good a search model is (precision, recall, nDCG in
+Step 9), we need to know the *right answers*: for each test query, which articles are actually relevant.
+The BBC dataset only has category labels, and a category is not a query. "Chelsea premiership" is a sport
+query, but most of the 500 sport articles are about tennis, rugby or athletics and are not relevant to it. So we
+wrote 20 realistic queries (`data/queries.csv`, 4 per category, 2–4 words each, never just the category name)
+and judge the results ourselves.
+
+**What pooling is.** Judging all 2,096 articles for all 20 queries would mean 41,920 judgements, which is
+impossible by hand. Pooling is the standard shortcut used in TREC evaluations:
+1. Run every system (here TF-IDF, BM25 and the unigram LM) on every query.
+2. Take the top k results of each (k = 10, the "pool depth").
+3. Merge them into one set without duplicates: the pool.
+4. A human judges only the pooled documents. Anything outside the pool is assumed not relevant.
+
+This works because a relevant article that none of the three models puts in its top 10 cannot change any of
+their top-10 scores anyway. Our pools have 11–18 articles per query (284 in total) instead of 30, because the
+three models often agree on the same articles.
+
+**Limitation.** Pooling can miss relevant articles that all three models ranked low, so measures that depend
+on knowing *every* relevant document (like recall) can be a little too optimistic. Measures on the top 10
+(precision@10, nDCG@10) are exact, because every top-10 document has been judged.
+
+**Why I judged relevance by hand.**
+- *Category is not relevance.* Category labels would say every sport article is relevant to "chelsea
+  premiership", which is wrong, and they can't tell a passing mention from an article that is really about the
+  topic.
+- *Avoiding circular evaluation.* If relevance were decided by a rule built from the same words the models use
+  (for example "contains the query term"), we would be measuring the models against themselves, and they would
+  all look perfect. A human reads for *meaning*.
+- *Graded relevance.* A person can say how relevant: 0 = not relevant, 1 = relevant, 2 = highly relevant
+  (the article is mainly about the query topic). nDCG uses these grades to reward putting the best articles
+  first.
+- *Fair judging.* The pool is sorted by doc_id, so I could not see which model found an article or at what rank,
+  which prevents bias towards one model. The `suggested_rel` column is only a hint (right category and contains
+  the rarest query word). It is 1 for 96% of rows, so it cannot replace reading the article.
+
+The judgements become `data/qrels.csv` ("query relevance judgements"), which Step 9 uses to score the models.
