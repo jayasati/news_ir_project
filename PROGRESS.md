@@ -249,11 +249,18 @@ appending to reports/viva_notes.md and committing as "Step N: <name>".
 
 ## Step 10: App
 
-- **Status:** Not started
-- **Files:**
+- **Status:** Done
+- **Files:** `app.py` (project root), `tests/test_app.py`
+- **Run the app:** `.venv\Scripts\python.exe -m streamlit run app.py` (or `streamlit run app.py` with the venv activated), from the project root; it opens at http://localhost:8501.
 - **Key functions (with signatures):**
-- **Results:**
-- **Notes:**
+  - `load_resources() -> tuple[InvertedIndex, NaiveBayes, pd.DataFrame]`: `@st.cache_resource`; loads index, model and articles once and adds a `predicted` column (Naive Bayes on `load_tokens()`)
+  - `badge(category: str) -> str`: coloured HTML label
+  - `snippet_with_highlights(text: str, query_stems: set[str]) -> str`: 250 characters around the first query word; a word is highlighted when `preprocess(word)` matches a query stem
+  - `search_tab(index, articles) -> None`: query, model (BM25 default / TF-IDF / Unigram LM), 5–50 results, filter on predicted category; ranks to depth 1000, filters, then keeps the top n
+  - `classify_tab(model) -> None`: predicted category + runner-up, `predict_proba()` bar chart, top 10 words from `explain()`
+  - `evaluation_tab() -> None`: renders `reports/results.md` and the three charts
+- **Results:** Tests: 4 new (app starts without exception; search "interest rates bank" shows results; stopword-only query warns; classify tab predicts sport for a football sentence); all 44 pass. The real server also started and passed its health check.
+- **Notes:** Every query and pasted text goes through `preprocess()` (also used for snippet highlighting, so "Elections" is highlighted for the query "election"). Predicted categories for *training* articles are in-sample (the model saw them), so mismatches are rarer there: 7 of 1,646 train vs 14 of 412 test. The category filter is applied after ranking so it never hides better-ranked articles. Messages are shown for an empty query, a query with no searchable words, no results, and pasted text with no known words. Unigram LM scores are negative log-probabilities; the app says so.
 
 ## Step 11: Report
 

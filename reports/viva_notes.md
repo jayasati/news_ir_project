@@ -453,3 +453,41 @@ that really mix two topics.
 an LLM and accepted unchanged by me; recall and MAP are optimistic because relevant articles outside the pool are
 unknown. P@5, P@10 and nDCG@10 are the most trustworthy numbers, because every top-10 result of the default
 rankers was judged.
+
+## Step 10: The app (how search and classification fit together)
+
+`app.py` is a small Streamlit web app with three tabs. It does no new computation of its own: it loads what the
+earlier steps saved and calls their functions.
+
+**Loading once.** The inverted index (`models/index.pkl`), the Naive Bayes model (`models/nb.pkl`) and the
+articles are loaded in one function marked `@st.cache_resource`. Streamlit re-runs the whole script every time
+the user clicks something; the cache means the files are read only the first time, so the app stays fast.
+At the same time the classifier predicts a category for all 2,058 articles, once.
+
+**Search tab: retrieval and classification working together.**
+1. The query goes through the same `preprocess()` as the articles (Step 3), so the words match the index.
+2. `search()` ranks articles with the chosen model, BM25 by default because it scored best in Step 9.
+3. Each result shows the **predicted** category (from Naive Bayes) as a coloured badge, and the true BBC category
+   next to it, flagged with a warning sign when they differ. So one screen shows both parts of the project:
+   the ranker decides *which* articles and in what order, the classifier labels *what kind* of article each is.
+4. The category filter uses the predicted category. This is how a real system would work: new articles have no
+   human label, so the only category we can filter on is the one the classifier gives. Ranking is done first
+   (1,000 deep) and filtering second, so choosing a category never hides a better-ranked article.
+5. The snippet shows the part of the article around the first query word, and highlights the query words. A word
+   is highlighted if `preprocess()` turns it into a query stem, so "Elections" lights up for the query
+   "election", exactly as the search engine itself matched it.
+
+A caution I can mention: for articles in the training split, the predicted category is "in-sample" (the model
+learned from them), so mismatches are rarer there (7 of 1,646) than in the test split (14 of 412).
+
+**Classify tab.** Any pasted text is preprocessed and given to the classifier: the predicted category, a bar chart
+of `predict_proba()` (the stable softmax from Step 6) and the words from `explain()` that pushed the decision
+towards the winner rather than the runner-up. This makes the classifier's reasoning visible instead of a black box.
+(Naive Bayes is often over-confident, so the bars are frequently close to 100% for one class.)
+
+**Evaluation tab.** Shows `reports/results.md` and the charts from Step 9, so the evidence for "BM25 is the best
+default" sits next to the search box that uses it.
+
+**Testing.** `tests/test_app.py` uses Streamlit's `AppTest`, which runs the script without a browser: it checks the
+app starts, that a search returns results, that a stopword-only query gives a helpful message, and that the
+classify tab works.
