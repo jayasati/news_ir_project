@@ -1,0 +1,9 @@
+nltk
+pandas
+numpy
+scikit-learn
+rank_bm25
+streamlit
+matplotlib
+seaborn
+pytest

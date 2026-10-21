@@ -1,0 +1,13 @@
+# Virtual environment and Python caches
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Trained models (rebuilt by the code)
+models/*.pkl
+
+# Data: the BBC articles must not be republished.
+# Ignore everything in data/ except the query set and relevance judgements.
+data/*
+!data/queries.csv
+!data/qrels.csv
