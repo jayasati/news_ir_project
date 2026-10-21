@@ -49,11 +49,22 @@ appending to reports/viva_notes.md and committing as "Step N: <name>".
 
 ## Step 4: Index
 
-- **Status:** Not started
-- **Files:**
-- **Key functions (with signatures):**
+- **Status:** Done
+- **Files:** `src/indexer.py`, `tests/conftest.py` (toy corpus fixture `toy_docs`), `tests/test_indexer.py`; output `models/index.pkl`
+- **Key functions (with signatures):** class `InvertedIndex` with attributes `postings: dict[str, dict[int, int]]` (term → {doc_id: tf}), `doc_len: dict[int, int]`, `cf: dict[str, int]`, `doc_norm: dict[int, float]`, `N: int`, `total_tokens: int`, `avgdl: float`
+  - `build(self, docs: dict[int, list[str]]) -> None`: fills everything, then calls `_compute_doc_norms()`
+  - `_compute_doc_norms(self) -> None`: `doc_norm[d] = sqrt(Σ_t w(t,d)²)`, `w(t,d) = (1 + log10 tf) · log10(N/df)`
+  - `df(self, term: str) -> int`
+  - `candidates(self, q_terms: list[str]) -> set[int]`: union of the terms' postings
+  - `boolean_and(self, query: str) -> set[int]`, `boolean_or(self, query: str) -> set[int]`, `boolean_not(self, query_a: str, query_b: str) -> set[int]` (= AND(a) − OR(b)); all run `preprocess()` on their input
+  - `save(self, path: str = "models/index.pkl") -> None`, `InvertedIndex.load(path: str = "models/index.pkl") -> InvertedIndex` (classmethod)
 - **Results:**
-- **Notes:**
+  - All 2,127 articles (train + test) indexed: N = 2,127, vocabulary 18,980 terms, 463,020 tokens, avgdl = 217.69.
+  - df("elect") = 228; first 10 postings (doc_id, tf): (6, 2), (34, 1), (75, 1), (100, 1), (101, 2), (105, 6), (106, 2), (120, 1), (133, 1), (135, 1).
+  - 303,945 postings entries in total, vs 2,127 × 18,980 ≈ 40.4 million cells in a full term-document matrix (only 0.75% non-zero). 7,833 terms occur in just one article.
+  - Boolean examples: "election AND labour" → 148 docs; "election OR labour" → 310; "election NOT labour" → 80 (148 + 80 = 228 = df("elect")).
+  - No document has doc_norm = 0. Tests: 7 new, all 17 pass.
+- **Notes:** `save()` pickles the attribute dict (`self.__dict__`), and `load()` copies it into a new object. The toy corpus in `conftest.py` uses doc_ids 1, 2, 3 for D1, D2, D3; its tokens are already processed, so the Boolean tests use words that Porter stemming leaves unchanged ("share", "market", "cricket", "launch", "new"). Note that "apple" → "appl" and "iphone" → "iphon", so a raw query "apple" would *not* match the toy tokens. The index is built on all articles because search should be able to find any article; only Naïve Bayes needs the train/test split.
 
 ## Step 5: Rankers
 

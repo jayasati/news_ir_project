@@ -11,3 +11,6 @@ models/*.pkl
 data/*
 !data/queries.csv
 !data/qrels.csv
+
+# Claude Code worktrees (separate checkouts, not project files)
+.claude/worktrees/
