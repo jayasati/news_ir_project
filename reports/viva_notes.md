@@ -114,3 +114,90 @@ model next.
 
 **Saving.** The index is built once and saved with pickle to `models/index.pkl`. Later steps load it with
 `InvertedIndex.load()` instead of rebuilding it.
+
+## Step 5: Ranking models (TF-IDF, BM25, unigram language model)
+
+Boolean search only says "match" or "no match". A ranking model gives every matching article a score so the
+best ones come first. All three models below score only the **candidates**: articles that contain at least
+one query word (looked up in the inverted index). Every query first goes through `preprocess()`.
+
+**Worked example** (the toy corpus from the tests): D1 = apple launch new iphone, D2 = apple share rise market,
+D3 = india win cricket match match. N = 3, avgdl = 13/3 ≈ 4.33, query = "apple iphone". D3 contains neither
+word, so it is never scored or returned.
+
+### 1. TF-IDF with cosine similarity
+
+Each word gets a weight in the query and in the article:
+
+    w(t, d) = (1 + log10 tf) × idf(t),      idf(t) = log10(N / df(t))
+    score(q, d) = Σ_t w(t, q) × w(t, d) / |d|,      |d| = sqrt(Σ w(t, d)²)   (doc_norm from Step 4)
+
+- **tf** (term frequency): a word used more often in an article matters more. The log stops it from growing
+  too fast: 10 mentions count about 2×, not 10×.
+- **idf** (inverse document frequency): a rare word matters more than a common one. "apple" is in 2 of 3 docs:
+  idf = log10(3/2) = 0.176. "iphone" is in 1 of 3: idf = log10(3) = 0.477.
+- **Dividing by |d|** turns the dot product into a cosine, i.e. it measures the angle between the query and
+  article vectors, so long articles don't win just because they contain more words.
+
+Example: D1 = (0.176 × 0.176 + 0.477 × 0.477) / 0.845 = 0.2587 / 0.845 = **0.306**.
+D2 only has "apple": 0.031 / 0.845 = **0.037**.
+(Full cosine also divides by the query length |q| = 0.509. That number is the same for every article of one
+query, so it can't change the order. We leave it out, and the scores are just scaled by a constant.)
+
+### 2. BM25 (Okapi BM25)
+
+    score(q, d) = Σ_t idf(t) × tf × (k1 + 1) / (tf + k1 × (1 − b + b × |d| / avgdl))
+    idf(t) = ln((N − df + 0.5) / (df + 0.5) + 1)
+
+- **k1 (default 1.5)** controls *saturation*. The tf part can never exceed k1 + 1, so the 10th mention of a
+  word adds much less than the 1st. k1 = 0 ignores tf completely.
+- **b (default 0.75)** controls *length normalisation*. It compares the article's length to the average:
+  longer than average lowers the score, shorter raises it. b = 0 ignores length; b = 1 normalises fully.
+- The "+ 1" inside the log keeps idf positive even for a word in more than half the articles.
+
+Example with k1 = 1.2, b = 0.75 (the values in the test): D1 has 4 tokens, so the length part is
+1 − 0.75 + 0.75 × 4 / 4.33 = 0.942. The tf part for tf = 1 is 1 × 2.2 / (1 + 1.2 × 0.942) = 1.032.
+idf(apple) = ln(1.5/2.5 + 1) = ln 1.6 = 0.470; idf(iphone) = ln(2.5/1.5 + 1) = 0.981.
+D1 = 1.032 × (0.470 + 0.981) = **1.498**; D2 = 1.032 × 0.470 = **0.485**.
+
+### 3. Query-likelihood unigram language model
+
+Idea: treat each article as a "bag of words" that a writer draws words from. Rank articles by how likely
+they are to have produced the query: P(q | d) = Π_t P(t | d). Multiplying many small probabilities would
+underflow to 0 on a computer, so we add natural logs instead: **score = Σ_t ln P(t | d)**. All scores are
+negative; the one closest to 0 is best.
+
+The plain estimate P(t | d) = tf / |d| is 0 for any query word missing from the article, and ln 0 = −∞,
+so an article missing one query word could never be returned. **Smoothing** mixes in the collection model
+P(t | C) = cf / total_tokens (how common the word is in all articles):
+
+    Jelinek-Mercer:  P(t | d) = (1 − λ) × tf / |d| + λ × P(t | C)          λ = 0.1
+    Dirichlet:       P(t | d) = (tf + μ × P(t | C)) / (|d| + μ)              μ = 2000
+
+Jelinek-Mercer uses a fixed mix. Dirichlet smooths short articles more and long articles less: μ acts like
+μ "pretend" words from the collection added to every article. Dirichlet is the project default.
+
+Example with Jelinek-Mercer, λ = 0.1: P(apple | C) = 2/13, P(iphone | C) = 1/13.
+D1: ln(0.9 × 1/4 + 0.1 × 2/13) + ln(0.9 × 1/4 + 0.1 × 1/13) = ln 0.2404 + ln 0.2327 = **−2.884**.
+D2 has no "iphone": ln 0.2404 + ln(0 + 0.1 × 1/13) = −1.426 − 4.868 = **−6.293**. The missing word costs a lot
+but does not make the score −∞.
+(With Dirichlet μ = 2000 the toy scores are almost equal, −4.431 vs −4.438, because μ is huge compared with
+4-word documents. On real articles, about 218 tokens long, μ = 2000 is a sensible size.)
+Query words that never occur anywhere (cf = 0) are skipped, since they would have probability 0 everywhere.
+
+### Why BM25 usually beats plain TF-IDF
+
+1. **Term-frequency saturation.** In TF-IDF, extra mentions keep adding score through 1 + log10 tf with no
+   upper limit. In BM25 the tf part levels off at k1 + 1, which matches how relevance really works: an
+   article that mentions "chelsea" 20 times is not 20 times more about Chelsea than one that mentions it 5 times.
+2. **Tunable length normalisation.** Cosine normalises by vector length in a fixed way, which tends to favour
+   very short articles. BM25 compares each article to the *average* length and lets b decide how strong the
+   penalty is.
+3. **A probabilistic idf**, derived from the probability that a word appears in relevant vs non-relevant
+   articles, which down-weights very common words more strongly.
+4. **Evidence:** BM25 has been the standard strong baseline in IR research (TREC) for decades, and the
+   k1/b defaults work well across many collections. We measure this on our own queries in Step 9.
+
+You can see the difference in our demo. For "interest rates bank", TF-IDF ranks "House prices show slight
+increase" 4th, while BM25 and the LM put "Bank holds interest rate at 4.75%" and "UK interest rates held at
+4.75%" near the top. Those are more clearly about the query.
