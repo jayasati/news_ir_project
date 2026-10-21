@@ -150,11 +150,28 @@ appending to reports/viva_notes.md and committing as "Step N: <name>".
 
 ## Step 6: Naïve Bayes
 
-- **Status:** Not started
-- **Files:**
-- **Key functions (with signatures):**
+- **Status:** Done
+- **Files:** `src/classifier.py`, `tests/test_classifier.py`; output `models/nb.pkl`
+- **Key functions (with signatures):** class `NaiveBayes` with attributes `classes: list[str]`, `vocab: set[str]`, `log_prior: dict[str, float]`, `log_likelihood: dict[str, dict[str, float]]`, `alpha: float`
+  - `fit(self, docs: list[list[str]], labels: list[str], alpha: float = 1.0) -> None`: `log P(c) = log(N_c/N)`, `log P(t|c) = log((T_ct + α)/(Σ_t' T_ct' + α|V|))`
+  - `predict(self, tokens: list[str]) -> tuple[str, dict[str, float]]`: `argmax_c log P(c) + Σ_t log P(t|c)`, skipping words not in the training vocabulary
+  - `predict_proba(self, tokens: list[str]) -> dict[str, float]`: softmax `exp(s_c − m)/Σ exp(s_c' − m)`, m = max score
+  - `top_words(self, c: str, n: int = 15) -> list[tuple[str, float]]`: `log P(t|c) − max_{c'≠c} log P(t|c')`
+  - `explain(self, tokens: list[str], c: str, n: int = 10) -> list[tuple[str, float]]`: `count(t)·(log P(t|c) − log P(t|r))`, r = runner-up class for this document; positive contributions only
+  - `save(self, path: str = "models/nb.pkl") -> None`, `NaiveBayes.load(path: str = "models/nb.pkl") -> NaiveBayes` (classmethod)
 - **Results:**
-- **Notes:**
+  - Trained on the 1,676 train articles only (vocabulary 17,187 stems), tested on the 420 test articles.
+  - **Test accuracy: 97.14%** (408/420). Macro F1 0.9709.
+  - Per class (precision / recall / F1): business 0.990 / 0.940 / 0.964; entertainment 0.986 / 0.973 / 0.979; politics 0.929 / 0.988 / 0.958; sport 1.000 / 0.980 / 0.990; tech 0.943 / 0.985 / 0.964.
+  - Confusion matrix (rows true, columns predicted; order business, entertainment, politics, sport, tech): [94 0 3 0 3], [0 71 2 0 0], [0 0 79 0 1], [1 0 1 98 0], [0 1 0 0 66].
+  - Top 15 words per class:
+    - business: yuko, oil, gm, glazer, sharehold, rosneft, fiat, gazprom, ebber, worldcom, yugansk, boe, currenc, investor, khodorkovski
+    - entertainment: actress, oscar, singer, nomine, rapper, ballet, actor, nomin, foxx, dicaprio, album, eastwood, sideway, swank, scorses
+    - politics: tori, lib, blunkett, asylum, ukip, dem, kilroy, blair, forsyth, conserv, kennedi, prescott, milburn, detent, elector
+    - sport: roddick, refere, cup, athen, rugbi, seed, gerrard, nadal, mourinho, champion, chelsea, championship, wenger, driscol, henman
+    - tech: nintendo, gamer, blog, spam, xbox, portabl, virus, browser, ds, microsoft, user, gadget, devic, handset, softwar
+  - IIR Example 13.1 reproduced: P(Chinese|c) = 3/7, P(Tokyo|j) = 2/9, test doc → c. Tests: 7 new, all 30 pass.
+- **Notes:** Accuracy is inside the expected 95–98% band, so there is no sign of leakage (near-duplicates were removed in Step 2) or of a preprocessing problem. The 12 errors are mostly genuinely mixed articles: "Ferdinand casts doubt over Glazer" (sport → business: glazer, stake, sharehold), "News Corp eyes video games market" (business → tech: game, video), "Web radio takes Spanish rap global" (tech → entertainment: rap, hip, hop), "Call to overhaul UK state pension" (business → politics). Most errors still get probability ≈ 1.000: Naïve Bayes probabilities are over-confident because the independence assumption counts every correlated word as separate evidence. Only training vocabulary words are used at prediction time, so unseen test words are skipped.
 
 ## Step 7: Validation
 

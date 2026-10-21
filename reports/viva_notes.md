@@ -208,3 +208,68 @@ Query words that never occur anywhere (cf = 0) are skipped, since they would hav
 You can see the difference in our demo. For "interest rates bank", TF-IDF ranks "House prices show slight
 increase" 4th, while BM25 and the LM put "Bank holds interest rate at 4.75%" and "UK interest rates held at
 4.75%" near the top. Those are more clearly about the query.
+
+## Step 6: Naïve Bayes classifier
+
+**What it does.** Given an article, it predicts its category (business, entertainment, politics, sport or
+tech). It learns from the 1,676 training articles only and is tested on the 420 test articles it has never
+seen. **Test accuracy: 97.14%** (408 of 420 correct).
+
+**The model (multinomial Naïve Bayes).** Bayes' rule says P(c | d) ∝ P(c) × P(d | c). The "naïve" assumption
+is that the words of an article are independent of each other once we know the class, so P(d | c) is just
+the product of the word probabilities:
+
+    P(c | d) ∝ P(c) × Π_{t in d} P(t | c)
+
+Training only needs counting:
+
+    P(c)     = N_c / N                                  (share of training articles in class c)
+    P(t | c) = (T_ct + 1) / (Σ_t' T_ct' + |V|)           (add-one smoothing, alpha = 1)
+
+T_ct is how many times word t appears in all training articles of class c, and |V| is the number of distinct
+words in the training set (17,187).
+
+**Textbook check (IIR Example 13.1).** Training: "Chinese Beijing Chinese", "Chinese Chinese Shanghai",
+"Chinese Macao" (class c) and "Tokyo Japan Chinese" (class j). |V| = 6. Class c has 8 words, 5 of them
+"Chinese", so P(Chinese | c) = (5 + 1)/(8 + 6) = 3/7. Class j has 3 words, so P(Tokyo | j) = (1 + 1)/(3 + 6) = 2/9.
+For "Chinese Chinese Chinese Tokyo Japan": c scores 3/4 × (3/7)³ × (1/14)² ≈ 0.0003 and j scores
+1/4 × (2/9)⁵ ≈ 0.0001, so the answer is c. Our code reproduces these numbers in the tests.
+
+**Why add-one smoothing is needed.** Without it, P(t | c) = 0 for any word never seen in class c. One such word
+makes the whole product 0, whatever the other 200 words say. In the example, "Tokyo" never appears in class c,
+so c would score 0 and lose, even though "Chinese" appears three times. Adding 1 to every count gives unseen
+words a small probability (1/14 here) instead of 0. This is the same idea as smoothing in the language model.
+
+**Why we work with logs.** An article has about 216 words, each with a probability around 0.001 or less. Their
+product is roughly 10⁻⁶⁰⁰, far below the smallest number a computer can store (about 10⁻³⁰⁸), so it would
+become 0 for every class (underflow). Taking logs turns the product into a sum:
+
+    score(c) = log P(c) + Σ_{t in d} log P(t | c)
+
+Sums of negative numbers around −2,000 are no problem. Because log is increasing, the class with the highest
+log score is also the class with the highest probability.
+
+To show probabilities, `predict_proba` uses a **stable softmax**: subtract the largest score m before exponentiating,
+P(c | d) = exp(score_c − m) / Σ exp(score_c' − m). Without subtracting m, exp(−2000) would underflow to 0 for
+every class and we would divide 0 by 0.
+
+**Explaining a prediction.** `top_words(c)` lists the words whose probability in c is highest compared with the
+best other class (log-likelihood ratio). For politics these are "tori" (Tory), "lib", "blunkett", "asylum",
+"ukip"; for sport "roddick", "refere", "cup", "rugbi"; for tech "nintendo", "gamer", "blog", "spam".
+`explain(doc, c)` shows which words in one article pushed it towards c rather than the runner-up class.
+
+**Where it goes wrong.** Most of the 12 errors are genuinely mixed articles. "Ferdinand casts doubt over Glazer"
+is a sport article about a takeover, so words like "stake" and "sharehold" made it look like business. "Web
+radio takes Spanish rap global" is tech, but "rap" and "hip hop" point to entertainment. Naïve Bayes still gives
+most of these wrong answers a probability close to 1.000. Its probabilities are over-confident because the
+independence assumption counts related words ("hip" and "hop") as separate pieces of evidence. So we trust
+its predicted label, not the exact probability.
+
+**How Naïve Bayes relates to the unigram language model.** They are the same model used in two directions.
+- In Step 5, each *article* has a unigram language model P(t | d), and we rank articles by how likely they are to
+  generate the *query*: Σ log P(t | d).
+- In Naïve Bayes, each *class* has a unigram language model P(t | c), built by pooling all its training articles,
+  and we choose the class most likely to generate the *article*: log P(c) + Σ log P(t | c).
+Both assume words are drawn independently (bag of words), both sum log probabilities, and both need smoothing
+for unseen words. Naïve Bayes uses add-one (Laplace) smoothing; the retrieval LM uses Dirichlet or
+Jelinek-Mercer, mixing in the collection model. The only extra piece in Naïve Bayes is the prior P(c).
